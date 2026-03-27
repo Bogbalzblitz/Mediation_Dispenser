@@ -1,0 +1,254 @@
+================================================================================
+         MEDICATION DISPENSER v3.0 — COMPLETE PINOUT REFERENCE
+                     DUAL ESP32-S3 ARCHITECTURE
+       Generated from: config.h (main) + audio_alarm_esp32.ino (peripheral)
+================================================================================
+
+╔═════════════════════════════════════════════════════════════════════════════╗
+║              MAIN ESP32-S3 N16R8  —  Firmware v3.0                          ║
+║  Handles: WiFi, MQTT, BLE, RTC, W25Q64 Flash, OLED, GSM, Buttons            ║
+║  Sends UART commands to Peripheral ESP32-S3 for all actuator control        ║
+╚═════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           I2C BUS — SSD1306 OLED                            │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  ESP32-S3 Pin  │  OLED Pin     │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  SDA      │  GPIO 8        │  SDA          │  PIN_SDA       (config.h)    │
+│  SCL      │  GPIO 9        │  SCL          │  PIN_SCL       (config.h)    │
+│  VCC      │  3.3 V         │  VCC          │  I2C addr 0x3C               │
+│  GND      │  GND           │  GND          │                              │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       RTC DS1302  —  3-Wire Interface                       │
+│                  CR2032 coin cell on V_BAT for backup power                 │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  ESP32-S3 Pin  │  DS1302 Pin   │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  CLK      │  GPIO 6        │  CLK / SCLK   │  PIN_RTC_CLK   (config.h)    │
+│  DAT      │  GPIO 7        │  DAT / IO     │  PIN_RTC_DAT   (config.h)    │
+│  RST      │  GPIO 10       │  RST / CE     │  PIN_RTC_RST   (config.h)    │
+│  VCC      │  3.3 V         │  VCC          │                              │
+│  GND      │  GND           │  GND          │                              │
+│  V_BAT    │  —             │  V_BAT        │  CR2032 coin cell (REQUIRED) │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                W25Q64 NOR FLASH  —  SPI (Event Log Storage)                 │
+│    ⚠ GPIO 35-37 are RESERVED for PSRAM on N16R8 — do NOT use them!          │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  ESP32-S3 Pin  │  W25Q64 Pin   │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  CS       │  GPIO 5        │  Pin 1 /CS    │  PIN_FLASH_CS   Active LOW   │
+│  DO/MISO  │  GPIO 14       │  Pin 2 DO     │  PIN_FLASH_MISO              │
+│  WP       │  3.3 V         │  Pin 3 /WP    │  Tie HIGH — write prot. OFF  │
+│  GND      │  GND           │  Pin 4 GND    │                              │
+│  DI/MOSI  │  GPIO 11       │  Pin 5 DI     │  PIN_FLASH_MOSI              │
+│  CLK      │  GPIO 18       │  Pin 6 CLK    │  PIN_FLASH_CLK   10 MHz      │
+│  HOLD     │  3.3 V         │  Pin 7 /HOLD  │  Tie HIGH — hold disabled    │
+│  VCC      │  3.3 V         │  Pin 8 VCC    │  3.3 V only! Never 5 V       │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+    ⚠ Add 100 nF ceramic decoupling cap between W25Q64 VCC and GND.
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    GSM MODULE (SIM800L)  —  UART2                           │
+│    ⚠ MOVED FROM 43/44 TO AVOID CONFLICT WITH USB PROGRAMMING UART0          │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  ESP32-S3 Pin  │  SIM800L Pin  │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  TX       │  GPIO 1        │  RX           │  PIN_GSM_TX  ESP→GSM         │
+│  RX       │  GPIO 2        │  TX           │  PIN_GSM_RX  ESP←GSM         │
+│  VCC      │  4.0–4.4 V     │  VCC          │  LiPo 3.7 V nominal          │
+│  GND      │  GND           │  GND          │  Common ground both boards   │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+    ⚠ SIM800L peaks at 2 A during GSM burst. Use dedicated LiPo cell
+      with 100 µF electrolytic + 100 nF ceramic directly at module VCC/GND.
+      NEVER power from the ESP32-S3's 3.3 V rail!
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               NAVIGATION BUTTONS  —  Active LOW, internal pull-ups          │
+├───────────┬────────────────┬──────────────────────────────────────────────┤
+│  Button   │  ESP32-S3 Pin  │  Function                                    │
+├───────────┼────────────────┼──────────────────────────────────────────────┤
+│  NAV      │  GPIO 4        │  Scroll through menu (Moved from Strap Pin 45)│
+│  SELECT   │  GPIO 47       │  Confirm / dispense during alarm             │
+│  BACK     │  GPIO 40       │  Go back / cancel (Note: JTAG MTDO pin)      │
+│  RESET    │  GPIO 41       │  Factory reset (Note: JTAG MTDI pin)         │
+└───────────┴────────────────┴──────────────────────────────────────────────┘
+
+    Button wiring (no external resistors needed):
+    ESP32-S3 GPIO ──── [Button] ──── GND
+    (Internal pull-up enabled in firmware via INPUT_PULLUP)
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              UART1 TO PERIPHERAL ESP32-S3  —  115,200 baud, 8N1             │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  Main GPIO     │  Peripheral   │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  TX       │  GPIO 17       │  GPIO 16 RX   │  PIN_AUDIO_TX (config.h)     │
+│  RX       │  GPIO 16       │  GPIO 17 TX   │  PIN_AUDIO_RX (config.h)     │
+│  GND      │  GND           │  GND          │  Must share common GND!      │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+    MAIN ESP32-S3 GPIO QUICK-REFERENCE:
+
+    GPIO 1   → UART2 TX → SIM800L RX (Corrected)
+    GPIO 2   → UART2 RX ← SIM800L TX (Corrected)
+    GPIO 4   → Button NAV (Corrected from Strap GPIO 45)
+    GPIO 5   → W25Q64 /CS (Flash Chip Select, active LOW)
+    GPIO 6   → DS1302 CLK
+    GPIO 7   → DS1302 DAT (bidirectional)
+    GPIO 8   → I2C SDA (OLED)
+    GPIO 9   → I2C SCL (OLED)
+    GPIO 10  → DS1302 RST/CE
+    GPIO 11  → W25Q64 MOSI (DI)
+    GPIO 14  → W25Q64 MISO (DO)
+    GPIO 16  → UART1 RX  ← Peripheral TX
+    GPIO 17  → UART1 TX  → Peripheral RX
+    GPIO 18  → W25Q64 CLK (10 MHz)
+    GPIO 19  *** RESERVED — Native USB (do not connect) ***
+    GPIO 20  *** RESERVED — Native USB (do not connect) ***
+    GPIO 35  *** RESERVED — PSRAM (N16R8, do not connect) ***
+    GPIO 36  *** RESERVED — PSRAM (N16R8, do not connect) ***
+    GPIO 37  *** RESERVED — PSRAM (N16R8, do not connect) ***
+    GPIO 40  → Button BACK
+    GPIO 41  → Button RESET (5 s hold = factory reset)
+    GPIO 43  *** DEFAULT TX_U0 — Reserved for USB Console / Flashing ***
+    GPIO 44  *** DEFAULT RX_U0 — Reserved for USB Console / Flashing ***
+    GPIO 45  *** STRAP PIN — Avoid pulling low/high externally ***
+    GPIO 47  → Button SELECT
+
+
+╔═════════════════════════════════════════════════════════════════════════════╗
+║          PERIPHERAL ESP32-S3  —  Firmware v2.0                              ║
+║  Handles: Stepper, Servo, Buzzer, LED, Vibration, Relay, MP3 Audio          ║
+║  Receives ASCII UART commands from Main ESP32-S3 (115,200 baud)             ║
+╚═════════════════════════════════════════════════════════════════════════════╝
+    (NOTE: The Peripheral board pinout mappings were flawless and have no 
+           hardware matrix conflicts.)
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  I2S AUDIO OUTPUT — MAX98357A Amplifier                     │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  ESP32-S3 Pin  │  MAX98357A    │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  BCLK     │  GPIO 4        │  BCLK         │  PIN_I2S_BCLK  Bit Clock     │
+│  LRC      │  GPIO 5        │  LRC          │  PIN_I2S_LRC   Word Select   │
+│  DIN      │  GPIO 6        │  DIN          │  PIN_I2S_DOUT  Audio Data    │
+│  GAIN     │  —             │  GAIN → GND   │  Fixed 9 dB gain             │
+│  SD/EN    │  —             │  Pull HIGH    │  Amplifier enabled           │
+│  VIN      │  3.3–5 V       │  VIN          │  Power                       │
+│  GND      │  GND           │  GND          │                              │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       SD CARD MODULE  —  SPI                                │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  ESP32-S3 Pin  │  SD Module    │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  CS       │  GPIO 10       │  CS           │  PIN_SD_CS     Active LOW    │
+│  MOSI     │  GPIO 11       │  MOSI/DI      │  PIN_SD_MOSI                 │
+│  CLK      │  GPIO 12       │  CLK          │  PIN_SD_CLK                  │
+│  MISO     │  GPIO 13       │  MISO/DO      │  PIN_SD_MISO                 │
+│  VCC      │  3.3 V         │  VCC          │  Most micro-SD modules = 3.3V│
+│  GND      │  GND           │  GND          │                              │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│          STEPPER DRIVER (A4988)  —  NEMA 17 + 50:1 Planetary Gearbox        │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  ESP32-S3 Pin  │  A4988 Pin    │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  STEP     │  GPIO 7        │  STEP         │  PIN_STEP_STEP  pulse output │
+│  DIR      │  GPIO 8        │  DIR          │  PIN_STEP_DIR                │
+│  EN       │  GPIO 9        │  ENABLE       │  PIN_STEP_EN  LOW=enabled    │
+│  MS1-3    │  GND           │  MS1, MS2, MS3│  All to GND = full-step mode │
+│  VMOT     │  12 V rail     │  VMOT         │  Stepper motor power         │
+│  VDD      │  3.3 V         │  VDD          │  Logic supply                │
+│  GND      │  GND           │  GND (logic)  │  Common GND with ESP32-S3    │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          SERVO MOTOR (Dispensing Hatch)                     │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  ESP32-S3 Pin  │  Servo        │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  PWM      │  GPIO 14       │  Signal       │  PIN_SERVO   50 Hz PWM       │
+│  VCC      │  5 V           │  VCC (Red)    │  5 V regulated supply        │
+│  GND      │  GND           │  GND (Brown)  │                              │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       ALERT OUTPUTS — Buzzer / LED / Vibration              │
+├───────────┬────────────────┬──────────────────────────────────────────────┤
+│  Component│  ESP32-S3 Pin  │  Notes                                       │
+├───────────┼────────────────┼──────────────────────────────────────────────┤
+│  Buzzer   │  GPIO 15       │  PIN_BUZZER  Active buzzer, HIGH = ON        │
+│  LED      │  GPIO 18       │  PIN_LED     Via 220 Ω series resistor → GND │
+│  Vibration│  GPIO 21       │  PIN_VIB     ERM motor via NPN transistor    │
+└───────────┴────────────────┴──────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              RELAY MODULE  —  2× 12 V DC Cooling Fan Control                │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  ESP32-S3 Pin  │  Relay Module │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  IN       │  GPIO 38       │  IN           │  PIN_RELAY  HIGH = relay ON  │
+│  VCC      │  5 V           │  VCC          │  Module coil supply          │
+│  GND      │  GND           │  GND          │                              │
+│  COM      │  12 V rail +   │  COM          │  Fan common supply           │
+│  NO       │  → Fan+        │  NO           │  Normally Open contact       │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              UART1 TO MAIN ESP32-S3  —  115,200 baud, 8N1                   │
+├───────────┬────────────────┬───────────────┬──────────────────────────────┤
+│  Signal   │  Periph. GPIO  │  Main ESP32   │  Notes                       │
+├───────────┼────────────────┼───────────────┼──────────────────────────────┤
+│  RX       │  GPIO 16       │  GPIO 17 TX   │  PIN_UART_RX   ← Main TX     │
+│  TX       │  GPIO 17       │  GPIO 16 RX   │  PIN_UART_TX   → Main RX     │
+│  GND      │  GND           │  GND          │  Must share common GND!      │
+└───────────┴────────────────┴───────────────┴──────────────────────────────┘
+
+    PERIPHERAL ESP32-S3 GPIO QUICK-REFERENCE:
+
+    GPIO 4   → I2S BCLK
+    GPIO 5   → I2S LRC  
+    GPIO 6   → I2S DIN  
+    GPIO 7   → Stepper STEP 
+    GPIO 8   → Stepper DIR
+    GPIO 9   → Stepper ENABLE 
+    GPIO 10  → SD Card CS
+    GPIO 11  → SD Card MOSI
+    GPIO 12  → SD Card CLK
+    GPIO 13  → SD Card MISO
+    GPIO 14  → Servo PWM
+    GPIO 15  → Buzzer 
+    GPIO 16  → UART1 RX  ← Main ESP32-S3 TX
+    GPIO 17  → UART1 TX  → Main ESP32-S3 RX
+    GPIO 18  → Status LED
+    GPIO 21  → Vibration Motor
+    GPIO 38  → Relay IN 
+
+================================================================================
+                            WIRING CHECKLIST
+================================================================================
+
+  [x] Both ESP32-S3 boards share a COMMON GND[x] GPIO 43, 44 KEPT UNCONNECTED (Reserved for USB Programming/Serial)
+  [x] GPIO 45 KEPT UNCONNECTED (Critical Strap Pin VDD_SPI)
+  [x] GPIO 19, 20 KEPT UNCONNECTED (Native USB reserved)
+  [x] GPIO 35, 36, 37 KEPT UNCONNECTED (PSRAM reserved on N16R8)
+  [x] DS1302 V_BAT connected to CR2032 coin cell (not floating)
+  [x] W25Q64 WP and HOLD pins tied to 3.3 V
+  [x] A4988 MS1/MS2/MS3 all tied to GND (full-step mode)
+  [x] SIM800L powered from dedicated LiPo — NOT from ESP32-S3 3.3 V rail
+  [x] 100 µF + 100 nF decoupling across SIM800L VCC/GND
+  [x] UART TX/RX CROSSED between Main and Peripheral (Main TX→Periph RX etc.)
+
+================================================================================
+                          END OF PINOUT REFERENCE
+================================================================================
