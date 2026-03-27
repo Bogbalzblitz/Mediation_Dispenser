@@ -1,0 +1,263 @@
+﻿Backend Development Prompt for MediCare+ Smart Medication Dispenser
+Project Overview
+Build the complete backend infrastructure for MediCare+, an Android application that controls an ESP32-based smart medication dispenser via BLE and Wi-Fi/MQTT. The backend must support real-time device communication, medication schedule management, dose tracking/history, caregiver access control, push notifications, and offline-first data synchronization. The system handles medical-grade reliability requirements — missed dose alerts are safety-critical.
+
+
+1. Core Data Models
+Design and implement the following entities:
+
+
+User
+
+
+id (UUID, PK)
+email, phone, display_name
+password_hash (bcrypt)
+role: patient | caregiver
+fcm_token (for Firebase Cloud Messaging push notifications)
+created_at, updated_at
+preferences (JSONB): { notifications_enabled: bool, dark_mode: bool, tutorial_completed: bool }
+Device (ESP32 Dispenser)
+
+
+id (UUID, PK)
+owner_id (FK → User)
+device_name (string, e.g., "ESP32_MedDispenser")
+mac_address (unique, used during BLE pairing)
+wifi_ssid (stored after provisioning)
+mqtt_client_id (unique identifier for MQTT broker)
+firmware_version, hardware_version
+battery_level (int, 0-100)
+status: online | offline | error | dispensing
+last_heartbeat (timestamp, updated by MQTT keep-alive)
+created_at, updated_at
+Medication
+
+
+id (UUID, PK)
+device_id (FK → Device)
+user_id (FK → User)
+name (string, e.g., "Aspirin")
+color (hex string, e.g., "#2D5BFF")
+enabled (boolean)
+slot_number (int, physical slot on dispenser hardware, 1-6)
+dosage_amount, dosage_unit (e.g., "500", "mg")
+notes (text, optional)
+created_at, updated_at
+Schedule
+
+
+id (UUID, PK)
+medication_id (FK → Medication)
+day_of_week: Monday | Tuesday | ... | Sunday
+time (TIME, e.g., "08:00:00")
+enabled (boolean)
+Unique constraint on (medication_id, day_of_week, time)
+DoseRecord
+
+
+id (UUID, PK)
+medication_id (FK → Medication)
+schedule_id (FK → Schedule, nullable for manual dispenses)
+scheduled_time (timestamp)
+dispensed_time (timestamp, nullable)
+status: upcoming | dispensed | missed | overdue | snoozed
+snooze_until (timestamp, nullable)
+dispensed_by: automatic | manual | caregiver | remote
+confirmed_by_user (boolean, for physical confirmation)
+created_at
+Caregiver
+
+
+id (UUID, PK)
+patient_id (FK → User, the device owner)
+caregiver_id (FK → User, the caregiver)
+pairing_code (string, e.g., "MED-A3X9K2", expires after use)
+pairing_code_expires_at (timestamp)
+sms_alerts_enabled (boolean)
+can_modify_schedule (boolean)
+can_dispense_remotely (boolean)
+status: pending | active | revoked
+created_at, updated_at
+AuditLog
+
+
+id (UUID, PK)
+user_id (FK → User)
+device_id (FK → Device, nullable)
+action: schedule_created | dose_dispensed | dose_missed | caregiver_added | caregiver_removed | device_paired | device_offline | settings_changed | remote_dispense | etc.
+metadata (JSONB, action-specific details)
+ip_address (for security auditing)
+created_at
+NotificationLog
+
+
+id (UUID, PK)
+user_id (FK → User)
+type: dose_reminder | dose_missed | device_offline | caregiver_alert | low_battery | refill_needed
+title, body (notification content)
+sent_at, read_at (nullable)
+delivery_status: sent | delivered | failed
+2. Authentication & Authorization
+Requirements:
+
+
+JWT-based auth with access tokens (15 min expiry) and refresh tokens (30 day expiry, rotated on use)
+Registration with email/password; optional phone for SMS alerts
+Password reset via email OTP
+Role-based access: patient owns devices/meds; caregiver has scoped access per Caregiver record
+Caregiver pairing flow: patient generates a 6-char alphanumeric code (MED-XXXXXX) with 24hr expiry; caregiver enters code to link accounts
+Every API endpoint must validate: (a) valid JWT, (b) user has permission for the requested resource (e.g., caregiver can only access patient data if active relationship exists and permissions allow)
+Endpoints:
+
+
+POST /auth/register — create account
+POST /auth/login — returns access + refresh tokens
+POST /auth/refresh — rotate refresh token
+POST /auth/forgot-password — send OTP
+POST /auth/reset-password — verify OTP + set new password
+DELETE /auth/account — soft delete with 30-day recovery window
+3. REST API Endpoints
+Devices:
+
+
+POST /devices — register a new device after BLE pairing (accepts mac_address, device_name)
+GET /devices — list user's devices
+GET /devices/:id — device details + current status
+PUT /devices/:id/wifi — store Wi-Fi provisioning info (SSID only, password is sent directly to ESP32 via BLE, never stored server-side)
+DELETE /devices/:id — unpair device
+Medications:
+
+
+CRUD /devices/:deviceId/medications — full CRUD
+PUT /devices/:deviceId/medications/:id/toggle — enable/disable
+Schedules:
+
+
+GET /medications/:medId/schedules — list schedules for a medication
+POST /medications/:medId/schedules/bulk — create/update multiple day-time pairs at once (supports the multi-day selection UI where users select multiple days and apply a single time)
+PUT /schedules/:id — update single schedule entry
+DELETE /schedules/:id — remove schedule entry
+Doses:
+
+
+GET /doses?status=upcoming&limit=20 — upcoming doses with pagination
+GET /doses/history?from=DATE&to=DATE&status=FILTER&page=1&limit=50 — historical doses with filtering
+POST /doses/:id/dispense — manually mark as dispensed (from app)
+POST /doses/:id/snooze — snooze for N minutes { minutes: 5|10|15 }
+GET /doses/stats?period=7d|30d|90d — adherence statistics (dispensed/total ratio, streaks, per-medication breakdown)
+GET /doses/export?format=csv&from=DATE&to=DATE — export history as CSV
+Caregivers:
+
+
+POST /caregivers/generate-code — generate pairing code for patient
+POST /caregivers/pair — caregiver submits pairing code
+GET /caregivers — list caregivers (for patient) or patients (for caregiver)
+PUT /caregivers/:id — update permissions (sms_alerts, can_modify_schedule, can_dispense_remotely)
+DELETE /caregivers/:id — revoke access
+GET /caregivers/:patientId/dashboard — caregiver view of patient's upcoming doses, adherence, device status
+Dispenser Control:
+
+
+POST /devices/:id/dispense — trigger remote dispense via MQTT command
+POST /devices/:id/pause — pause automatic dispensing
+POST /devices/:id/resume — resume automatic dispensing
+4. MQTT Broker Integration
+The ESP32 communicates via MQTT. The backend must act as both an MQTT publisher (commands) and subscriber (telemetry).
+
+
+MQTT Topics:
+
+
+Topic Direction Payload Purpose
+dispenser/{device_id}/status ESP32 → Server { status, battery, slot_states, timestamp } Heartbeat every 30s
+dispenser/{device_id}/dose/dispensed ESP32 → Server { slot, medication_id, timestamp } Confirm physical dispense
+dispenser/{device_id}/dose/failed ESP32 → Server { slot, error_code, timestamp } Dispense failure (jam, empty)
+dispenser/{device_id}/cmd/dispense Server → ESP32 { slot, medication_id, request_id } Trigger dispense
+dispenser/{device_id}/cmd/pause Server → ESP32 { paused: bool } Pause/resume
+dispenser/{device_id}/cmd/schedule_sync Server → ESP32 { schedules: [...] } Push updated schedules to device
+dispenser/{device_id}/alert ESP32 → Server { type, message, severity } Low battery, slot empty, hardware error
+Backend MQTT responsibilities:
+
+
+Subscribe to all dispenser/+/status, dispenser/+/dose/#, dispenser/+/alert topics
+On dose/dispensed: update DoseRecord status to dispensed, set dispensed_time, notify patient + caregivers
+On dose/failed: create alert, notify patient + caregivers immediately
+On status heartbeat: update Device.last_heartbeat, Device.battery_level, Device.status
+On alert: create NotificationLog, send push notification, if low_battery or slot_empty — send caregiver SMS if enabled
+If no heartbeat received for 2 minutes: mark device offline, send device_offline notification
+When schedule is modified via API: publish cmd/schedule_sync to device
+All MQTT messages must use QoS 1 (at least once delivery) for dose events, QoS 0 for status heartbeats
+MQTT Broker: Use Mosquitto or EMQX. Authenticate devices using pre-shared keys generated during pairing. Each device gets a unique mqtt_client_id and credentials.
+
+
+5. Push Notifications & Alerting
+Firebase Cloud Messaging (FCM) integration:
+
+
+dose_reminder: sent 5 minutes before scheduled time
+dose_missed: sent 15 minutes after scheduled time if not dispensed
+device_offline: sent after 2 minutes of no heartbeat
+low_battery: sent when battery < 20%
+refill_needed: sent when ESP32 reports slot empty
+caregiver_alert: forward missed/failed dose alerts to all active caregivers with sms_alerts_enabled
+SMS Alerts (for caregivers):
+
+
+Use Twilio or equivalent
+Only for critical events: missed dose (after 15 min grace), device offline (after 5 min), dispense failure
+Rate limit: max 10 SMS per caregiver per day
+Notification Scheduler:
+
+
+Background job that runs every minute
+Queries schedules for doses due in the next 5 minutes
+Creates DoseRecord with status upcoming if not already existing
+Sends dose_reminder push notification
+Another job checks for overdue doses (scheduled_time + 15 min passed, status still upcoming) → marks as missed, sends alerts
+6. Offline-First & Data Synchronization
+The app must work in demo mode (no device connected) and handle intermittent connectivity:
+
+
+Conflict resolution strategy: Last-write-wins with server timestamp for schedule changes; append-only for dose records
+Sync endpoint: POST /sync — accepts a batch of local changes with local timestamps, returns server state delta since last sync
+Sync payload: { last_sync_timestamp, changes: { medications: [...], schedules: [...], doses: [...] } }
+Response: { server_timestamp, updates: { medications: [...], schedules: [...], doses: [...] }, conflicts: [...] }
+Device-side sync: When ESP32 reconnects after being offline, it publishes buffered dose events; backend deduplicates by (medication_id, scheduled_time) pair
+7. Background Jobs / Cron Tasks
+Job Frequency Description
+generate-upcoming-doses Every minute Creates DoseRecord entries for doses due in next 24 hours
+check-missed-doses Every minute Marks overdue doses (>15 min past scheduled) as missed
+send-reminders Every minute Sends push notifications for doses due in 5 minutes
+check-device-health Every 30 seconds Marks devices offline if no heartbeat for 2+ minutes
+expire-pairing-codes Every hour Invalidates expired caregiver pairing codes
+cleanup-audit-logs Daily at 3 AM Archive audit logs older than 1 year
+adherence-report Daily at 9 AM Generate daily adherence summary, send to caregivers
+8. Tech Stack Recommendation
+API Framework: Node.js with Express/Fastify or Python with FastAPI
+Database: PostgreSQL (relational integrity for medical data)
+Cache/Pub-Sub: Redis (for real-time device status caching, job queues)
+MQTT Broker: EMQX or Mosquitto (with auth plugin)
+Job Queue: BullMQ (Node.js) or Celery (Python)
+Push Notifications: Firebase Admin SDK
+SMS: Twilio
+ORM: Prisma (Node.js) or SQLAlchemy (Python)
+API Documentation: OpenAPI/Swagger auto-generated
+Deployment: Docker Compose for local dev; Kubernetes or AWS ECS for production
+Monitoring: Health check endpoint at GET /health, structured JSON logging, Prometheus metrics for dose delivery latency and device online rates
+9. Security Requirements
+All API communication over HTTPS (TLS 1.3)
+MQTT over TLS (port 8883)
+Wi-Fi passwords are never stored server-side (sent directly to ESP32 via BLE)
+Rate limiting: 100 req/min per user for general endpoints, 10 req/min for auth endpoints
+Input validation on all endpoints (medication names max 100 chars, schedule times must be valid, etc.)
+HIPAA-awareness: while not claiming full HIPAA compliance, encrypt PII at rest (AES-256), use parameterized queries, implement audit logging for all data access
+Device authentication: each ESP32 gets unique MQTT credentials (client cert or username/password) generated during pairing, revocable on unpair
+Caregiver access is fully revocable — revoking immediately invalidates their access to all patient data
+10. Database Indexes
+dose_records: composite index on (medication_id, scheduled_time), index on (status, scheduled_time) for the reminder/missed-dose jobs
+devices: index on (last_heartbeat) for health check job, unique on mac_address
+schedules: composite unique on (medication_id, day_of_week, time)
+caregivers: index on (pairing_code) where status = 'pending'
+audit_logs: index on (user_id, created_at), index on (device_id, created_at)
+Questions I Need Answered Before Implementation
